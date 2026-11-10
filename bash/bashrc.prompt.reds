@@ -1,0 +1,203 @@
+# reds variant of ~/.bashrc.prompt -- colors chosen to survive redshift -O 1000
+# (only the red channel survives; contrast comes from red brightness, not hue)
+
+# accepts a series of 4-part section definitions
+# _PROMPT_RENDER [fg1 bg1 sep1 text1 [fg2 bg2 sep2 text2 ...]]
+# fgN: foreground color (-1 for terminal default)
+# bgN: background color (-1 for terminal default)
+# sepN: 1 to include powerline-style separator, 0 for no separator
+# textN: text to display in the section
+_PROMPT_RENDER() {
+  local sections=("$@")
+  local prompt=""
+
+  for ((i = 0; i < ${#sections[@]}; i+=4)); do
+    fg=${sections[i]}
+    bg=${sections[i+1]}
+    sep=${sections[i+2]}
+    text="${sections[i+3]}"
+
+    if ((i > 0)); then
+      prevbg=${sections[i-3]}
+    else
+      prevbg=-1
+    fi
+
+    if ((sep == 1)); then
+      if ((bg >= 0 && prevbg >= 0)); then
+        prompt+="\[\e[38;5;${prevbg};48;5;${bg}m\]\ue0b0"
+      elif ((prevbg >= 0)); then
+        prompt+="\[\e[0m\e[38;5;${prevbg}m\]\ue0b0"
+      elif ((bg >= 0)); then
+        prompt+="\[\e[0m\e[38;5;${bg}m\e[7m\]\ue0b0\[\e[27m\]"
+      else
+        prompt+=" "
+      fi
+    elif ((sep == 2)); then
+      if ((bg >= 0 && prevbg >= 0)); then
+        prompt+="\[\e[38;5;${bg};48;5;${prevbg}m\]\ue0b2"
+      elif ((prevbg >= 0)); then
+        prompt+="\[\e[0m\e[38;5;${prevbg}m\e[7m\]\ue0b2\[\e[27m\]"
+      elif ((bg >= 0)); then
+        prompt+="\[\e[0m\e[38;5;${bg}m\]\ue0b2"
+      else
+        prompt+=" "
+      fi
+    fi
+
+    if ((bg >= 0 && fg >= 0)); then
+      prompt+="\[\e[38;5;${fg};48;5;${bg}m\]"
+    elif ((bg >= 0)); then
+      prompt+="\[\e[0m\e[48;5;${bg}m\]"
+    elif ((fg >= 0)); then
+      prompt+="\[\e[0m\e[38;5;${fg}m\]"
+    else
+      prompt+="\[\e[0m\]"
+    fi
+
+    prompt+="$text"
+  done
+
+  echo "$prompt"
+}
+
+_PROMPT_COMMAND() {
+	# grab exit code while we can
+	local exit=$?
+  local prompt_mtime=$(($(date +%s%N) / 1000000))
+  local sections=()
+
+
+  if [[ ! -z "$_PROMPT_TIMER" ]] && ((_PROMPT_EXEC_START != 0)); then
+    local dur=$((prompt_mtime - _PROMPT_EXEC_START))
+    sections+=(0 172 0 "$(_PROMPT_HRTIME $dur)")
+    
+    if ((exit > 0)); then
+      sections+=(0 196 1 " $exit ")
+    fi
+
+    sections+=(-1 -1 1 "\n")
+  fi
+
+	# TODO: make this dynamic?
+	local DIR_WIDTH=60
+	
+	# status line clock
+  sections+=(0 215 2 "$(date '+%-l:%M%P')")
+
+	# status line working directory
+  sections+=(0 172 1 "$(dirs +0)")
+  #IFS=$'\n' local dirparts=($(dirs +0 | tr '/' '\n'))
+
+  #if [[ "${dirparts[0]}" = "" ]]; then
+  #  sections+=(0 172 1 " /")
+  #else
+  #  sections+=(0 172 1 " ${dirparts[0]}")
+  #fi
+
+
+  #for ((i = 1; i < ${#dirparts[@]}; i++)); do
+  #  sections+=(137 172 0 "/")
+  #  sections+=(0 172 0 "${dirparts[i]}")
+  #done
+
+  # non-zero exit code (timer disabled)
+  if [[ -z "$_PROMPT_TIMER" ]] && ((exit > 0)); then
+    sections+=(-1 -1 1 " ")
+    sections+=(0 196 2 "$exit")
+  fi
+
+	# fun fact: "local" has an exit code
+	local git_status
+  git_status=$(git status -s 2> /dev/null)
+  local git_exit=$?
+
+	if (( git_exit == 0 )); then
+		# figure out status counts
+		local unstaged=$(grep -E '^.[MADRC?]' -c <<< "$git_status")
+		local staged=$(grep '^[MADRC]' -c <<< "$git_status")
+    local branch="$(git rev-parse --abbrev-ref HEAD)"
+    sections+=(-1 -1 1 " ")
+    sections+=(0 137 2 "${branch}")
+    (( unstaged )) && sections+=(0 223 1 "${unstaged}")
+    (( staged )) && sections+=(0 172 1 "${staged}")
+	fi
+  
+  # venv (if applicable)
+  if [[ ! -z "$VIRTUAL_ENV_PROMPT" ]]; then
+    sections+=(-1 -1 1 " ")
+    sections+=(214 52 2 $(sed 's/[()]//g' <<< $VIRTUAL_ENV_PROMPT))
+  fi
+
+  # line break, command count, user@host
+  sections+=(-1 -1 1 "\n")
+  sections+=(0 215 2 "#\#")
+  sections+=(0 172 1 "\u@\h")
+
+
+  # previous exit code (if applicable), command prompt
+  sections+=(214 -1 1 " \$ ")
+  sections+=(-1 -1 0 "")
+
+	local title_reset="\[\033]0;$USER@${HOSTNAME} $(pwd)\007\]"
+  local prompt="$(_PROMPT_RENDER "${sections[@]}")"
+  PS1="$(echo -e "${title_reset}${prompt}")"
+
+  history -a 2>/dev/null
+  history -n 2>/dev/null
+
+  _PROMPT_PREEXEC_READY=1
+  _PROMPT_EXEC_START=0
+}
+
+_PROMPT_PREEXEC_READY=0
+_PROMPT_EXEC_START=0
+_PROMPT_EXEC_CURRENT=0
+
+# WARNING! THIS IS NOT ACCURATE IF PROCESSES DO NOT EXIT IN THE ORDER THEY WERE STARTED
+_PROMPT_PREEXEC() {
+  local exit=$?
+  ((_PROMPT_PREEXEC_READY == 0)) && return
+  [[ "$BASH_COMMAND" == "_PROMPT_COMMAND" ]] && return
+  echo -ne "\033]0;$BASH_COMMAND $USER@${HOSTNAME} $(pwd)\007"
+
+  [[ -z "$_PROMPT_TIMER" ]] && return
+
+  if ((_PROMPT_EXEC_START == 0)); then
+    _PROMPT_EXEC_START=$(($(date +%s%N) / 1000000))
+    local time=$(date '+%-l:%M%P')
+    echo -e "\e[38;5;0;48;5;172m${time}\e[38;5;172;48;5;52m\ue0b0\e[38;5;214;48;5;52m ${BASH_COMMAND}\e[0m\e[38;5;52m\ue0b0\e[0m\e[0K"
+  else
+    _PROMPT_EXEC_CURRENT=$(($(date +%s%N) / 1000000))
+    local time=$(_PROMPT_HRTIME $((_PROMPT_EXEC_CURRENT - _PROMPT_EXEC_START)))
+    if ((exit > 0)); then
+      echo -e "\e[38;5;0;48;5;172m${time}\e[38;5;172;48;5;196m\ue0b0\e[38;5;0;48;5;196m ${exit} \e[38;5;196;48;5;52m\ue0b0\e[38;5;214;48;5;52m ${BASH_COMMAND}\e[0m\e[38;5;52m\ue0b0\e[0m\e[0K"
+    else
+      echo -e "\e[38;5;0;48;5;172m${time}\e[38;5;172;48;5;52m\ue0b0\e[38;5;214;48;5;52m ${BASH_COMMAND}\e[0m\e[38;5;52m\ue0b0\e[0m\e[0K"
+    fi
+  fi
+}
+
+# Returns a human-readable duration for a given duration in milliseconds
+# HH:MM:SS.MMM
+# zero parts are omitted
+# durations < 1 minute are suffixed with "s" or "ms"
+_PROMPT_HRTIME() {
+  local hourval minval secval msval=$1
+  local second=1000 minute hour
+  ((minute = second * 60))
+  ((hour = minute * 60))
+
+  ((hourval = msval / hour, msval %= hour))
+  ((minval = msval / minute, msval %= minute))
+  ((secval = msval / second, msval %= second))
+
+  ((hourval)) && printf "%d:%02d:%02d.%03d" $hourval $minval $secval $msval && return
+  ((minval)) && printf "%02d:%02d.%03d" $minval $secval $msval && return
+  ((secval)) && printf "%d.%03ds" $secval $msval && return
+  printf "%dms" $msval && return
+}
+
+PROMPT_COMMAND="_PROMPT_COMMAND"
+trap "_PROMPT_PREEXEC" DEBUG
+_PROMPT_TIMER=

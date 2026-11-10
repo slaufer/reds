@@ -1,0 +1,38 @@
+# reds alacritty palette -- for redshift -O 1000 -b 0.7
+# Only red-channel brightness survives at 1000K, so the 16 ANSI colors are
+# spread across red levels (noted per entry) instead of hues. Blue is the
+# darkest "color" (still readable) so default-blue things don't vanish.
+# Usable as `general.import = ["~/.config/alacritty/reds.toml"]`, or applied
+# live to one window by `reds on` (see bash/reds.sh).
+
+[colors.primary]
+background = "#000000"
+foreground = "#e0b080"  # R224
+
+[colors.cursor]
+text = "#000000"
+cursor = "#ff8800"
+
+[colors.selection]
+text = "#000000"
+background = "#d0a070"
+
+[colors.normal]
+black   = "#000000"
+red     = "#c00000"  # R192
+green   = "#a05800"  # R160
+yellow  = "#d88000"  # R216
+blue    = "#983400"  # R152
+magenta = "#b02020"  # R176
+cyan    = "#e0a040"  # R224
+white   = "#c09070"  # R192
+
+[colors.bright]
+black   = "#843010"  # R132
+red     = "#ff2000"  # R255
+green   = "#d08000"  # R208
+yellow  = "#ffc040"  # R255
+blue    = "#b04800"  # R176
+magenta = "#e04040"  # R224
+cyan    = "#ffd080"  # R255
+white   = "#ffe0c0"  # R255
